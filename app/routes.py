@@ -3,9 +3,20 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import os
+
+from langchain.llms import OpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
 
 from app import auth, models, schemas, security
 from app.db import get_db
+from app.models import User
+from ai.prompts import generate_context, qa_template
+
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())
 
 router = APIRouter()
 
@@ -46,12 +57,43 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/conversation")
+# @router.get("/conversation")
+# async def read_conversation(
+#     current_user: schemas.UserInDB = Depends(auth.get_current_user),
+# ):
+#     return {
+#         "message": "Hello, you are logged in!",
+#         "conversation": "This is a secure conversation",
+#         "current_user": current_user.username,
+#     }
+
+
+@router.post("/conversation")
 async def read_conversation(
+    query: str = "",
     current_user: schemas.UserInDB = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
 ):
-    return {
-        "message": "Hello, you are logged in!",
-        "conversation": "This is a secure conversation",
-        "current_user": current_user.username,
-    }
+    db_user = db.query(User).get(current_user.id)
+    if not db_user:
+        raise HTTPException(status_code=400, detail="User not found")
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is empty")
+
+    context = generate_context(db_user)
+
+    llm = OpenAI(
+        temperature=0,
+        openai_api_key=os.environ.get("OPENAI_API_KEY"),
+    )
+
+    prompt = PromptTemplate(
+        input_variables=["context", "question"],
+        template=qa_template,
+    )
+
+    llm_chain = LLMChain(llm=llm, prompt=prompt)
+
+    response = llm_chain.run(context=context, question=query)
+
+    return {"response": response}
