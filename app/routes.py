@@ -35,7 +35,7 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
     user = auth.get_user(db, form_data.username)
-    if not user or not security.verify_password(
+    if not user or not security.pwd_context.verify(
         form_data.password, user.hashed_password
     ):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
